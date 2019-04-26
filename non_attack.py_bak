@@ -12,7 +12,7 @@ import glob
 from scipy.misc import imresize
 from progressbar import *
 
-CHECKPOINTS_DIR = './checkpoints/'
+CHECKPOINTS_DIR = 'models'
 model_checkpoint_map = {
     'inception_v1': os.path.join(CHECKPOINTS_DIR,'inception_v1', 'inception_v1.ckpt'),
     'resnet_v1_50': os.path.join(CHECKPOINTS_DIR, 'resnet_v1_50','model.ckpt-49800'),
@@ -60,68 +60,35 @@ tf.flags.DEFINE_float(
 tf.flags.DEFINE_string(
     'gpu','0','')
 
+tf.flags.DEFINE_integer(
+    'nb_classes', 110, 'image classes')
+
 FLAGS = tf.flags.FLAGS
-
-
-def load_images_with_true_label(input_dir, batch_shape):
-    # images = []
-    images = np.zeros(batch_shape)
-    filenames = []
-    true_labels = []
-    idx = 0
-    dev = pd.read_csv(os.path.join(input_dir, 'dev.csv'))
-    filename2label = {dev.iloc[i]['filename']: dev.iloc[i]['trueLabel'] for i in range(len(dev))}
-    for filename in filename2label.keys():
-        # image = imread(os.path.join(input_dir, filename), mode='RGB')
-        # images.append(image)
-        image = Image.open(os.path.join(input_dir,filename))
-        image = image.resize((224, 224), Image.BILINEAR)
-        images[idx,:,:,:] = image
-        filenames.append(filename)
-        true_labels.append(filename2label[filename])
-        idx += 1
-        if idx == batch_shape[0]:
-            images = np.array(images)
-            yield filenames, images, true_labels
-            filenames = []
-            # images = []
-            images = np.zeros(batch_shape)
-            true_labels = []
-            idx = 0
-    if idx > 0:
-        images = np.array(images)
-        yield filenames, images, true_labels
-
-
 
 
 def load_images_no_label(input_dir, batch_shape):
     images = np.zeros(batch_shape)
     filenames = []
+    filepaths=[]
     labels = []
     batch_size = batch_shape[0]
     idx = 0
-    filepaths = []
     widgets = ['save_atk_image:', Percentage(), ' ',Bar('*'),' ',Timer(), ' ', ETA(), ' ', FileTransferSpeed()]
     pbar = ProgressBar(widgets=widgets)
-    for filepath in tf.gfile.Glob(os.path.join(input_dir, '*.png'))):
-        # image = imread(filepath, mode='RGB').astype(np.float) / 255.0
+    for filepath in tf.gfile.Glob(os.path.join(input_dir, '*.png')):
         filepaths.append(filepath)
-        idx +=1
-    for filepath in tf.gfile.Glob(os.path.join(input_dir, '.*jpg')):
+        idx += 1
+    for filepath in tf.gfile.Glob(os.path.join(input_dir, '*jpg')):
         filepaths.append(filepath)
-        idx +=1
+        idx += 1
     im = 0
     for i in range(idx):
         image = Image.open(filepaths[i])
         image = image.resize((224,224), Image.BILINEAR)
-        # image = image()
-        # Images for inception classifier are normalized to be in [-1, 1] interval.
         images[i%batch_size, :, :, :] = (np.array(image).astype(np.float) / 255.0) * 2.0 - 1.0
-        # images.append(image)
         filename = os.path.basename(filepaths[i])
         filenames.append(filename)
-        label = filepath.split('/')[-2]
+        label = filepaths[i].split('/')[-2]
         labels.append(label)
         im += 1
         if im == batch_size:
@@ -136,12 +103,13 @@ def load_images_no_label(input_dir, batch_shape):
 
 
 def save_ijcai_images(images, filenames, output_dir):
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
     for i, filename in enumerate(filenames):
-        image = (((images[i] + 1.0) * 0.5) * 255.0).astype(np.uint8)
-        # resize back to [299, 299]
-        image = imresize(image, [299, 299])
-        Image.fromarray(image).save(os.path.join(output_dir, filename), format='PNG')
-        # print('{} image saved'.format(os.path.join(output_dir, filename)))
+        with open(os.path.join(output_dir, filename), 'w') as f:
+            image = (((images[i] + 1.0) * 0.5) * 255.0).astype(np.uint8)
+            image = imresize(image, [299, 299])
+            Image.fromarray(image).save(f, format='PNG')
 
 
 def non_target_graph(x, y, i, x_max, x_min, grad):
@@ -153,13 +121,17 @@ def non_target_graph(x, y, i, x_max, x_min, grad):
         logits_inc_v1, end_points_inc_v1 = inception.inception_v1(
             x, num_classes=num_classes, is_training=False, scope='InceptionV1')
 
+    logit1 = logits_inc_v1
+
     image = (((x + 1.0) * 0.5) * 255.0)
     processed_imgs_res_v1_50 = preprocess_for_model(image, 'resnet_v1_50')
     with slim.arg_scope(resnet_v1.resnet_arg_scope()):
         logits_res_v1_50, end_points_res_v1_50 = resnet_v1.resnet_v1_50(
             processed_imgs_res_v1_50, num_classes=num_classes, is_training=False, scope='resnet_v1_50')
 
-    end_points_res_v1_50['logits'] = tf.squeeze(end_points_res_v1_50['resnet_v1_50/logits'], [1, 2])
+    # end_points_res_v1_50['logits'] = tf.squeeze(end_points_res_v1_50['resnet_v1_50/logits'], [1, 2])
+    end_points_res_v1_50['logits'] = logits_res_v1_50
+    logit2 = tf.squeeze(logits_res_v1_50, [1,2])
     end_points_res_v1_50['probs'] = tf.nn.softmax(end_points_res_v1_50['logits'])
 
     # image = (((x + 1.0) * 0.5) * 255.0)#.astype(np.uint8)
@@ -168,15 +140,24 @@ def non_target_graph(x, y, i, x_max, x_min, grad):
         logits_vgg_16, end_points_vgg_16 = vgg.vgg_16(
             processed_imgs_vgg_16, num_classes=num_classes, is_training=False, scope='vgg_16')
 
+
     end_points_vgg_16['logits'] = end_points_vgg_16['vgg_16/fc8']
     end_points_vgg_16['probs'] = tf.nn.softmax(end_points_vgg_16['logits'])
 
-    pred = tf.argmax(end_points_inc_v1['Predictions'] + end_points_vgg_16['probs'], 1)
+    logit3 = end_points_vgg_16['logits']
+    pred1 = end_points_inc_v1['Predictions']
+    pred2 = tf.squeeze(end_points_res_v1_50['probs'], [1,2])
+    pred3 = end_points_vgg_16['probs']
+    pred = tf.argmax(pred1 + pred2 + pred3, 1)
     first_round = tf.cast(tf.equal(i, 0), tf.int64)
-    y = first_round * pred + (1 - first_round) * y
-    one_hot = tf.one_hot(y, num_classes)
+    y = pred
+    one_hot = tf.one_hot(y, num_classes, axis=-1)
 
-    logits = (end_points_inc_v1['Logits']  + end_points_vgg_16['logits']) / 2.0
+    # logits = (end_points_inc_v1['Logits'] + end_points_res_v1_50['logits'] + end_points_vgg_16['logits']) / 3.0
+    # logits = (end_points_inc_v1['logits'] + logits_res_v1_50 + end_points_vgg_16['logits']) / 3.0
+    logits = (logit1 + logit2 + logit3)/3.0
+
+
     cross_entropy = tf.losses.softmax_cross_entropy(one_hot,
                                                   logits,
                                                   label_smoothing=0.0,
@@ -200,30 +181,16 @@ def non_stop(x, y, i, x_max, x_min, grad):
 # attack function for ijcai
 def non_attack(input_dir, output_dir):
     eps = FLAGS.max_epsilon*2.0/255.0
-    print('output_dir is%',FLAGS.output_dir)
+    # print('output_dir is%',FLAGS.output_dir)
 
     gpus = np.array(FLAGS.gpu.split(',')).astype('int')
 
     batch_shape = [FLAGS.batch_size, 224, 224, 3]
     n_gpus = len(gpus)
-    # processed_img =
-    all_imgs = glob.glob(os.path.join(FLAGS.input_dir, '/*/*.jpg'))
 
     with tf.Graph().as_default():
         raw_inputs = tf.placeholder(tf.uint8, shape=[None, 224, 224, 3])
 
-        # flists = set([f for f in os.listdir(FLAGS.input_dir) if 'jpg' in f])
-        # if FLAGS.use_existing == 1:
-        #     flists_existing = set(
-        #         [os.path.split(f)[-1] for f in glob.glob(os.path.join(FLAGS.output_dir, '/*/*.jpg')) if 'jpg' in f])
-        #     newfiles = list(flists.difference(flists_existing))
-        #     newfiles = [os.path.join(FLAGS.input_dir, f) for f in newfiles]
-        # else:
-            # newfiles = [os.path.join(FLAGS.inpuzt_dir,f) for f in flists]
-        newfiles = glob.glob(os.path.join(FLAGS.input_dir, '*/*.jpg'))
-        print('creating %s new files' % (len(newfiles)))
-        if len(newfiles) == 0:
-            return
 
         # set model type for training
         model_type = 'InceptionV1'
@@ -231,8 +198,8 @@ def non_attack(input_dir, output_dir):
         x_input = tf.placeholder(tf.float32, shape=batch_shape)
         x_max = tf.clip_by_value(x_input + eps, -1.0, 1.0)
         x_min = tf.clip_by_value(x_input - eps, -1.0, 1.0)
+        # y = tf.constant(np.zeros([FLAGS.nb_classes]), tf.int64)
         y = tf.constant(np.zeros([FLAGS.batch_size]), tf.int64)
-        # y = tf.constant(np.zeros([bs_single]), tf.int64)
         i = tf.constant(0)
         grad = tf.zeros(shape=batch_shape)
         x_adv, _, _, _, _, _ = tf.while_loop(non_stop, non_target_graph, [x_input, y, i, x_max, x_min, grad])
@@ -253,7 +220,5 @@ def non_attack(input_dir, output_dir):
 
 
 if __name__ == '__main__':
-    # input_dir = '/home/zhuxudong/competition/ijcai2019/dev_data/'
-    # output_dir = '/home/zhuxudong/competition/ijcai2019Ω/output/'
     non_attack(FLAGS.input_dir, FLAGS.output_dir)
     pass
