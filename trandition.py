@@ -1,10 +1,11 @@
+from __future__ import print_function
 import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from scipy.misc import imread
 from tensorflow.contrib.slim.nets import resnet_v1, inception, vgg
-import cleverhans
+#import cleverhans
 
 from non_preprocess import preprocess_for_model
 from nets import inception_v3, inception_v4, inception_resnet_v2, resnet_v2, inception_v1, inception
