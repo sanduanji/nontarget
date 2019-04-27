@@ -110,7 +110,6 @@ def load_images_with_true_label(input_dir, batch_shape):
             images = np.zeros(batch_shape)
             true_labels = []
             idx = 0
-    if idx > 0:
         images = np.array(images)
         yield filenames, images, true_labels
 
