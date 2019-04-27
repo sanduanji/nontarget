@@ -77,7 +77,7 @@ def tradition(input_dir, output_dir):
         true_label = filename2label[filename]
         # targeted_label = int(split_line[2])
 
-        image_pil = Image.open(input_dir + "/" + filename)
+        image_pil = Image.open(os.path.join(input_dir,filename))
         image = np.asarray(image_pil.resize([299, 299], Image.BILINEAR).convert("RGB")).astype(np.float32)
 
 
