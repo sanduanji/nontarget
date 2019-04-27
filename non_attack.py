@@ -102,8 +102,8 @@ def load_images_no_label(input_dir, batch_shape):
     batch_size = batch_shape[0]
     idx = 0
     filepaths = []
-    widgets = ['save_atk_image:', Percentage(), ' ',Bar('*'),' ',Timer(), ' ', ETA(), ' ', FileTransferSpeed()]
-    pbar = ProgressBar(widgets=widgets)
+   # widgets = ['save_atk_image:', Percentage(), ' ',Bar('*'),' ',Timer(), ' ', ETA(), ' ', FileTransferSpeed()]
+   # pbar = ProgressBar(widgets=widgets)
     for filepath in tf.gfile.Glob(os.path.join(input_dir, '*.png'))):
         # image = imread(filepath, mode='RGB').astype(np.float) / 255.0
         filepaths.append(filepath)
@@ -137,7 +137,7 @@ def load_images_no_label(input_dir, batch_shape):
 
 def save_ijcai_images(images, filenames, output_dir):
     for i, filename in enumerate(filenames):
-        image = (((images[i] + 1.0) * 0.5) * 255.0).astype(np.uint8)
+        image = (((images[i].clip(0,255)).astype(np.uint8)
         # resize back to [299, 299]
         image = imresize(image, [299, 299])
         Image.fromarray(image).save(os.path.join(output_dir, filename), format='PNG')
