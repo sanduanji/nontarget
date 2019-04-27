@@ -99,7 +99,7 @@ def tradition(input_dir, output_dir):
         new_image[left:right, top:bottom] /= n
         new_image = new_image.astype(np.uint8)
 
-        Image.fromarray(np.asarray(new_image, np.int8), "RGB").save(output_dir + "/" + filename)
+        Image.fromarray(np.asarray(new_image, np.int8), "RGB").save(os.path.join(output_dir,filename))
 
 
 if __name__ == '__main__':
