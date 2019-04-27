@@ -82,10 +82,10 @@ def tradition(input_dir, output_dir):
         image = np.asarray(image_pil.resize([299, 299], Image.BILINEAR).convert("RGB")).astype(np.float32)
 
 
-        left = 27
-        right = 272
-        top = 27
-        bottom = 272
+        left = 45
+        right = 254
+        top = 45
+        bottom = 542
 
         new_image = image.copy()
         n = 1
